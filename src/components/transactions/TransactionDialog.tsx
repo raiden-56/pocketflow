@@ -32,10 +32,10 @@ export function TransactionDialog() {
   const submit = (values: TransactionInput) => {
     if (editing) {
       dispatch(updateTransaction({ id: editing.id, changes: values }))
-      dispatch(showToast(mode === 'import' ? 'Transaction updated in memory. Export to keep it.' : 'Transaction updated. Save to write it to Excel.', 'success'))
+      dispatch(showToast(mode !== 'direct' ? 'Transaction updated in memory. Export to keep it.' : 'Transaction updated. Save to write it to Excel.', 'success'))
     } else {
       dispatch(addTransaction(values))
-      dispatch(showToast(mode === 'import' ? 'Transaction added in memory. Export to keep it.' : 'Transaction added. Save to write it to Excel.', 'success'))
+      dispatch(showToast(mode !== 'direct' ? 'Transaction added in memory. Export to keep it.' : 'Transaction added. Save to write it to Excel.', 'success'))
     }
     close()
   }

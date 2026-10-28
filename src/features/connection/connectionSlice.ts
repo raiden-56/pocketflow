@@ -10,6 +10,8 @@ export interface ConnectionState {
   mode: ConnectionMode | null
   status: SyncStatus
   fileName: string | null
+  /** Link mode: the Google Sheets / web link the workbook is read from. */
+  sourceUrl: string | null
   lastSyncedAt: string | null
   lastCheckedAt: string | null
   /** Last time an export was generated in import mode. */
@@ -31,6 +33,7 @@ const initialState: ConnectionState = {
   mode: null,
   status: 'disconnected',
   fileName: null,
+  sourceUrl: null,
   lastSyncedAt: null,
   lastCheckedAt: null,
   lastExportAt: null,
@@ -53,9 +56,10 @@ const connectionSlice = createSlice({
     restoreFinished(state) {
       state.restoring = false
     },
-    connectionStarted(state, action: PayloadAction<{ mode: ConnectionMode; fileName: string }>) {
+    connectionStarted(state, action: PayloadAction<{ mode: ConnectionMode; fileName: string; sourceUrl?: string }>) {
       state.mode = action.payload.mode
       state.fileName = action.payload.fileName
+      state.sourceUrl = action.payload.sourceUrl ?? null
       state.status = 'syncing'
       state.loading = true
       state.error = null

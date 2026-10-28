@@ -83,14 +83,14 @@ export function Header() {
           )}
           {isConnected && !isMobile && (
             <>
-              <Tooltip title={mode === 'import' ? 'Import the workbook again' : 'Refresh from Excel'}>
+              <Tooltip title={mode === 'import' ? 'Import the workbook again' : mode === 'link' ? 'Reload from Google Sheet' : 'Refresh from Excel'}>
                 <span>
                   <IconButton onClick={() => void refresh()} disabled={loading || saving} aria-label="Refresh from Excel">
                     <RefreshIcon />
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title={mode === 'import' ? 'Export updated workbook' : 'Save changes to Excel'}>
+              <Tooltip title={mode !== 'direct' ? 'Export updated workbook' : 'Save changes to Excel'}>
                 <span>
                   <Button
                     variant={dirty ? 'contained' : 'outlined'}
@@ -100,7 +100,7 @@ export function Header() {
                     disabled={!dirty || saving}
                     sx={{ whiteSpace: 'nowrap' }}
                   >
-                    {mode === 'import' ? 'Export' : 'Save'}
+                    {mode !== 'direct' ? 'Export' : 'Save'}
                   </Button>
                 </span>
               </Tooltip>
@@ -148,7 +148,7 @@ export function Header() {
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title={mode === 'import' ? 'Export updated workbook' : 'Save changes to Excel'}>
+          <Tooltip title={mode !== 'direct' ? 'Export updated workbook' : 'Save changes to Excel'}>
             <span>
               <IconButton color={dirty ? 'warning' : 'default'} onClick={() => void save()} disabled={!dirty || saving} aria-label="Save changes">
                 <SaveOutlinedIcon />

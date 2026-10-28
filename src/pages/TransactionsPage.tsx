@@ -133,7 +133,7 @@ export default function TransactionsPage() {
         onConfirm={() => {
           if (deletingId) {
             dispatch(deleteTransaction(deletingId))
-            dispatch(showToast(c.mode === 'import' ? 'Transaction removed in memory. Export to keep the change.' : 'Transaction removed. Save to update Excel.', 'success'))
+            dispatch(showToast(c.mode !== 'direct' ? 'Transaction removed in memory. Export to keep the change.' : 'Transaction removed. Save to update Excel.', 'success'))
           }
           setDeletingId(null)
         }}

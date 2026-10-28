@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useAppDispatch, useAppSelector } from '@/app/store'
 import {
   connectDirect,
+  connectLink,
   disconnectWorkbook,
   dismissConflict,
   exportBackup,
@@ -26,6 +27,7 @@ export function useExcelConnection() {
 
   const connect = useCallback(() => dispatch(supportsDirectAccess ? connectDirect() : importWorkbook()), [dispatch, supportsDirectAccess])
   const importFile = useCallback(() => dispatch(importWorkbook()), [dispatch])
+  const connectSheetLink = useCallback((url: string) => dispatch(connectLink(url)), [dispatch])
   const refresh = useCallback((force = false) => dispatch(refreshFromExcel({ force })), [dispatch])
   const save = useCallback(() => dispatch(saveChanges()), [dispatch])
   const disconnect = useCallback(() => dispatch(disconnectWorkbook()), [dispatch])
@@ -45,6 +47,7 @@ export function useExcelConnection() {
     isConnected: connection.mode != null && connection.status !== 'disconnected',
     connect,
     importFile,
+    connectLink: connectSheetLink,
     refresh,
     save,
     disconnect,

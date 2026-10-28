@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Personal workbook with real finance data (never commit)
+PocketFlow_My_Money_*.xlsx

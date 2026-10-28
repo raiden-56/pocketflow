@@ -30,7 +30,7 @@ One worksheet per month named `January` … `December` (short names like `Jan` o
 | Date | Description | Category | Type | Payment Method | Amount (INR) | Notes |
 |------|-------------|----------|------|----------------|--------------|-------|
 
-- **Date**: a real Excel date, or text such as `15/03/2026`, `2026-03-15`, `15 Mar 2026`.
+- **Date**: a real Excel date, or text such as `15/03/2026`, `2026-03-15`, `15 Mar 2026`. A row with a description (or category) and an amount but **no date** is recorded on the 1st of its sheet's month and flagged as a warning, so a quick list typed into a month sheet still shows up.
 - **Type**: `Income` or `Expense` (also understands `credit`/`debit`). Amounts are always positive; Type sets the direction.
 - **Amount**: a number. Text like `₹1,20,000.50` is understood when reading.
 - The header row can be anywhere in the first 15 rows, so a title row above it is fine.
@@ -39,16 +39,24 @@ One worksheet per month named `January` … `December` (short names like `Jan` o
 
 Rows that cannot be read (bad date, non-numeric amount) are **never silently dropped**: they are listed as validation issues in the Dashboard and in Settings so you can fix them in Excel and refresh.
 
-## Two connection modes
+## Three connection modes
 
-| | Direct file connection | Import / Export |
-|---|---|---|
-| Browsers | Chrome, Edge, other Chromium browsers on desktop (File System Access API) | Everything else (Safari, Firefox, mobile browsers) |
-| Reading | Reads the file on disk; remembers it between sessions (re-asks permission after a browser restart) | You pick the file each time |
-| External edits | Detected by polling while the tab is visible and on focus; reloaded automatically when there are no unsaved edits | Re-import the file manually |
-| Saving | **Save changes to Excel** writes straight back into the same file | **Export updated workbook** downloads a new `.xlsx`; replace your original with it |
+| | Direct file connection | Import / Export | Google Sheet link |
+|---|---|---|---|
+| Browsers | Chrome, Edge, other Chromium browsers on desktop (File System Access API) | Everything else (Safari, Firefox, mobile browsers) | Any browser |
+| Reading | Reads the file on disk; remembers it between sessions (re-asks permission after a browser restart) | You pick the file each time | Downloads the sheet from its link; remembers the link between sessions |
+| External edits | Detected by polling while the tab is visible and on focus; reloaded automatically when there are no unsaved edits | Re-import the file manually | Re-checked every minute and on focus; reloaded automatically when the data changed |
+| Saving | **Save changes to Excel** writes straight back into the same file | **Export updated workbook** downloads a new `.xlsx`; replace your original with it | Read-only: add and edit transactions in Google Sheets (**Export updated workbook** downloads in-app edits) |
 
-In both modes, edits live in the app until you save or export. The status chip in the header shows `Changes pending` until the write has actually succeeded; if a write fails (for example the workbook is open in Excel and locked), the app says so and keeps the edits in memory.
+In every mode, edits live in the app until you save or export.
+
+### Using a Google Sheet
+
+1. Upload the workbook to Google Drive and open it with Google Sheets (*File → Save as Google Sheets* if it opened in Office mode). Keep the month tabs and column headers.
+2. *File → Share → Publish to web*, choose **Entire document**, click **Publish**, and copy the link.
+3. In PocketFlow, paste the link into **Google Sheet link** (welcome screen or Settings → Excel connection) and click **Connect link**.
+
+A published link can be opened by anyone who has it (it is not listed or searchable), so share it carefully. A normal "Anyone with the link can view" sharing link also works. Google can take up to 5 minutes to refresh a published sheet after you edit it. The status chip in the header shows `Changes pending` until the write has actually succeeded; if a write fails (for example the workbook is open in Excel and locked), the app says so and keeps the edits in memory.
 
 ### Conflicts
 

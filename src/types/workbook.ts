@@ -47,7 +47,8 @@ export interface ParsedWorkbook {
   fatalError?: string
 }
 
-export type ConnectionMode = 'direct' | 'import'
+/** direct: local file via File System Access API; import: one-off file upload; link: read-only Google Sheets / web link. */
+export type ConnectionMode = 'direct' | 'import' | 'link'
 
 export type SyncStatus =
   | 'disconnected'

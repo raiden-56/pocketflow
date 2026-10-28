@@ -7,7 +7,7 @@ import {
   type SheetLayout,
   type ValidationIssue,
 } from '@/types/workbook'
-import { normalizeDateValue, monthOfIso } from '@/utils/dateFormatter'
+import { normalizeDateValue, monthOfIso, toIsoDate, formatDisplayDate, yearOfIso } from '@/utils/dateFormatter'
 import { parseAmountValue, roundMoney } from '@/utils/currencyFormatter'
 import { createId } from '@/utils/id'
 
@@ -101,6 +101,23 @@ export function detectLayout(sheetName: string, rows: unknown[][]): SheetLayout 
   return best
 }
 
+/** A 4-digit year in the sheet name ("October 2026", "Oct-2026"), if any. */
+function yearFromSheetName(sheetName: string): number | null {
+  const match = sheetName.match(/(?:^|\D)((?:19|20)\d{2})(?!\d)/)
+  return match ? Number(match[1]) : null
+}
+
+/** The year most dated transactions fall in, used to date rows that were entered without a date. */
+function dominantYear(transactions: Transaction[]): number | null {
+  const counts = new Map<number, number>()
+  for (const tx of transactions) {
+    if (tx.date) counts.set(yearOfIso(tx.date), (counts.get(yearOfIso(tx.date)) ?? 0) + 1)
+  }
+  let best: number | null = null
+  for (const [year, count] of counts) if (best === null || count > counts.get(best)!) best = year
+  return best
+}
+
 export function readWorkbookFromBuffer(buffer: ArrayBuffer): XLSX.WorkBook {
   return XLSX.read(buffer, { type: 'array', cellDates: true, cellNF: true })
 }
@@ -126,8 +143,10 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
   const sheets: SheetLayout[] = []
   const otherSheets: string[] = []
   const foundMonths = new Set<string>()
+  /** Rows typed without a date; dated to the 1st of their sheet's month once the workbook year is known. */
+  const undated: { tx: Transaction; month: number; sheetYear: number | null }[] = []
 
-  const issue = (partial: Omit<ValidationIssue, 'id'>) => {
+  const issue =(partial: Omit<ValidationIssue, 'id'>) => {
     issues.push({ id: createId('issue'), ...partial })
   }
 
@@ -160,6 +179,7 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
     }
 
     const monthIndex = MONTH_SHEETS.indexOf(month) + 1
+    const sheetYear = yearFromSheetName(sheetName)
     const seen = new Map<string, number>()
 
     for (let r = layout.headerRow + 1; r < rows.length; r += 1) {
@@ -183,9 +203,13 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
 
       let fatal = false
 
-      let date = normalizeDateValue(rawDate)
-      if (!date) {
-        if (rawDate == null || String(rawDate).trim() === '') {
+      const date = normalizeDateValue(rawDate)
+      const dateEmpty = rawDate == null || String(rawDate).trim() === ''
+      // An entry with a description or category but no date (e.g. copied from a paper list) is kept and
+      // dated to the start of its sheet's month. Rows with neither stay skipped: they are usually totals.
+      const undatedEntry = !date && dateEmpty && Boolean(description || category)
+      if (!date && !undatedEntry) {
+        if (dateEmpty) {
           issue({ severity: 'error', sheet: sheetName, row: excelRow, field: 'date', message: 'Date is empty. The record was skipped; add a date in Excel and refresh.', rawValue: '' })
         } else {
           issue({ severity: 'error', sheet: sheetName, row: excelRow, field: 'date', message: `Date "${cleanText(rawDate)}" could not be understood. The record was skipped.`, rawValue: cleanText(rawDate) })
@@ -222,7 +246,7 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
         amount = Math.abs(amount)
       }
 
-      if (fatal || date == null || amount == null) continue
+      if (fatal || amount == null) continue
 
       if (!description) {
         issue({ severity: 'warning', sheet: sheetName, row: excelRow, field: 'description', message: 'Description is empty.', recovered: true })
@@ -231,7 +255,7 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
         issue({ severity: 'warning', sheet: sheetName, row: excelRow, field: 'category', message: 'Category is empty; shown as "Uncategorized".', recovered: true })
       }
 
-      if (flagMonthMismatch && monthOfIso(date) !== monthIndex) {
+      if (flagMonthMismatch && date && monthOfIso(date) !== monthIndex) {
         issue({
           severity: 'warning',
           sheet: sheetName,
@@ -242,7 +266,7 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
         })
       }
 
-      const key = `${date}|${lowered}|${type}|${roundMoney(amount)}`
+      const key = `${date ?? `undated-${monthIndex}`}|${lowered}|${type}|${roundMoney(amount)}`
       const prevRow = seen.get(key)
       if (prevRow !== undefined) {
         issue({ severity: 'warning', sheet: sheetName, row: excelRow, field: 'row', message: `Possible duplicate of row ${prevRow} (same date, description, type and amount).`, recovered: true })
@@ -250,9 +274,9 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
         seen.set(key, excelRow)
       }
 
-      transactions.push({
+      const tx: Transaction = {
         id: createId(),
-        date,
+        date: date ?? '',
         description: description || '(no description)',
         category: category || 'Uncategorized',
         type,
@@ -261,10 +285,28 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
         notes,
         sourceSheet: sheetName,
         sourceRow: excelRow,
-      })
+      }
+      transactions.push(tx)
+      if (!date) undated.push({ tx, month: monthIndex, sheetYear })
       layout.dataRows += 1
     }
     sheets.push(layout)
+  }
+
+  if (undated.length > 0) {
+    const fallbackYear = dominantYear(transactions) ?? new Date().getFullYear()
+    for (const { tx, month, sheetYear } of undated) {
+      tx.date = toIsoDate(new Date(sheetYear ?? fallbackYear, month - 1, 1))
+      issue({
+        severity: 'warning',
+        sheet: tx.sourceSheet!,
+        row: tx.sourceRow,
+        field: 'date',
+        message: `Date is empty; recorded on ${formatDisplayDate(tx.date)} (start of ${tx.sourceSheet}). Add the real date in Excel if it matters.`,
+        rawValue: '',
+        recovered: true,
+      })
+    }
   }
 
   const missingSheets = MONTH_SHEETS.filter((m) => !foundMonths.has(m))

@@ -23,9 +23,10 @@ export function useWorkbookSync() {
   }, [dispatch])
 
   useEffect(() => {
-    if (mode !== 'direct') return
+    if (mode !== 'direct' && mode !== 'link') return
+    // A link re-downloads the whole sheet and Google refreshes published copies every few minutes, so poll it less often.
     const stop = createChangePoller({
-      intervalMs: Math.max(5, pollInterval) * 1000,
+      intervalMs: Math.max(mode === 'link' ? 60 : 5, pollInterval) * 1000,
       onTick: () => dispatch(checkForExternalChanges()),
     })
     return stop

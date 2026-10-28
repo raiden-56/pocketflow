@@ -11,6 +11,7 @@ import { useExcelConnection } from '@/hooks/useExcelConnection'
 import { SyncStatusChip } from '@/components/common/SyncStatus'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { formatDateTime } from '@/utils/dateFormatter'
+import { SheetLinkForm } from './SheetLinkForm'
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -34,7 +35,11 @@ export function ExcelConnectionPanel() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
-  const modeLabel = c.mode === 'direct' ? 'Direct file connection (reads and writes the file on disk)' : c.mode === 'import' ? 'Import / export (changes stay in memory until exported)' : '—'
+  const modeLabel =
+    c.mode === 'direct' ? 'Direct file connection (reads and writes the file on disk)'
+    : c.mode === 'import' ? 'Import / export (changes stay in memory until exported)'
+    : c.mode === 'link' ? 'Google Sheet link (read-only, reloads when the sheet changes)'
+    : '—'
 
   return (
     <Stack spacing={2}>
@@ -61,13 +66,21 @@ export function ExcelConnectionPanel() {
           {c.lastExportAt && ` Last export: ${formatDateTime(c.lastExportAt)}.`}
         </Alert>
       )}
+      {c.mode === 'link' && c.isConnected && c.status !== 'failed' && (
+        <Alert severity={c.dirty ? 'warning' : 'info'}>
+          {c.dirty
+            ? `${c.pendingChanges.length} change${c.pendingChanges.length === 1 ? '' : 's'} exist only in this app's memory. The Google Sheet is read-only from here: make the same edits in Google Sheets, or export the updated workbook.`
+            : 'Add and edit transactions in Google Sheets. PocketFlow re-reads the sheet every minute and when you come back to this tab (Google can take up to 5 minutes to update a published sheet).'}
+        </Alert>
+      )}
 
       <Box>
         <Row label="Status" value={<SyncStatusChip status={c.status} fileName={c.fileName} lastSyncedAt={c.lastSyncedAt} pendingCount={c.pendingChanges.length} />} />
         <Row label="Workbook" value={c.fileName ?? 'No workbook connected'} />
         <Row label="Connection mode" value={modeLabel} />
+        {c.mode === 'link' && c.sourceUrl && <Row label="Sheet link" value={<Link href={c.sourceUrl} target="_blank" rel="noopener noreferrer">{c.sourceUrl}</Link>} />}
         <Row label="Last successful sync" value={formatDateTime(c.lastSyncedAt)} />
-        {c.mode === 'direct' && <Row label="Last change check" value={formatDateTime(c.lastCheckedAt)} />}
+        {(c.mode === 'direct' || c.mode === 'link') && <Row label="Last change check" value={formatDateTime(c.lastCheckedAt)} />}
         <Row label="Unsaved changes" value={c.pendingChanges.length ? <Chip size="small" color="warning" label={`${c.pendingChanges.length} pending`} /> : 'None'} />
         {c.loadSummary && <Row label="Last load" value={c.loadSummary} />}
       </Box>
@@ -96,12 +109,12 @@ export function ExcelConnectionPanel() {
         )}
         {c.isConnected && (
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => void c.refresh()} disabled={c.loading || c.saving}>
-            {c.mode === 'import' ? 'Re-import from file' : 'Refresh from Excel'}
+            {c.mode === 'import' ? 'Re-import from file' : c.mode === 'link' ? 'Reload from Google Sheet' : 'Refresh from Excel'}
           </Button>
         )}
         {c.isConnected && (
           <Button variant={c.dirty ? 'contained' : 'outlined'} color={c.dirty ? 'warning' : 'primary'} startIcon={<SaveOutlinedIcon />} onClick={() => void c.save()} disabled={!c.dirty || c.saving}>
-            {c.mode === 'import' ? 'Export updated workbook' : 'Save changes to Excel'}
+            {c.mode === 'direct' ? 'Save changes to Excel' : 'Export updated workbook'}
           </Button>
         )}
         {c.isConnected && (
@@ -110,6 +123,8 @@ export function ExcelConnectionPanel() {
           </Button>
         )}
       </Stack>
+
+      <SheetLinkForm key={c.sourceUrl ?? 'none'} />
 
       <Button size="small" color="inherit" startIcon={<HelpOutlineIcon />} onClick={() => setShowHelp((v) => !v)} sx={{ alignSelf: 'flex-start' }}>
         Connection troubleshooting
@@ -121,6 +136,7 @@ export function ExcelConnectionPanel() {
           <Typography variant="body2"><strong>Save fails or file locked.</strong> Close the workbook in Excel before saving: Excel locks open files. Changes stay in the app until the save succeeds.</Typography>
           <Typography variant="body2"><strong>Formatting.</strong> Saving rewrites the transaction rows of the monthly sheets. Cell values, formulas elsewhere, column widths and other sheets are preserved, but custom cell colours and fonts in the monthly sheets are not.</Typography>
           <Typography variant="body2"><strong>Other devices.</strong> A file connected on this device is not automatically available elsewhere. Keep the workbook in a cloud-synced folder (OneDrive, Google Drive, Dropbox) and connect it on each device. Automatic cross-device sync would need a separate sync service; PocketFlow does not include one.</Typography>
+          <Typography variant="body2"><strong>Google Sheets.</strong> In Google Sheets choose File → Share → Publish to web, pick "Entire document", click Publish and paste the link above. Anyone who has a published link can view the sheet, so share it carefully. The app reads it but cannot write to it: add transactions in Google Sheets.</Typography>
           <Typography variant="body2"><strong>Unsupported browser.</strong> Safari and Firefox lack the File System Access API. Use Import / Export mode there, or Chrome / Edge for direct connection.</Typography>
         </Stack>
       </Collapse>

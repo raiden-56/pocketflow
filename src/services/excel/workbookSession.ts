@@ -12,9 +12,11 @@ interface SessionState {
   fingerprint: FileFingerprint | null
   /** The raw bytes last read, used for "Export backup copy". */
   lastBuffer: ArrayBuffer | null
+  /** Link mode: signature of the data last loaded, to detect edits made in Google Sheets. */
+  contentSignature: string | null
 }
 
-const session: SessionState = { handle: null, workbook: null, fingerprint: null, lastBuffer: null }
+const session: SessionState = { handle: null, workbook: null, fingerprint: null, lastBuffer: null, contentSignature: null }
 
 export const workbookSession = {
   get handle() {
@@ -28,6 +30,12 @@ export const workbookSession = {
   },
   get lastBuffer() {
     return session.lastBuffer
+  },
+  get contentSignature() {
+    return session.contentSignature
+  },
+  setContentSignature(signature: string | null) {
+    session.contentSignature = signature
   },
   setHandle(handle: FileSystemFileHandle | null) {
     session.handle = handle
@@ -44,5 +52,6 @@ export const workbookSession = {
     session.workbook = null
     session.fingerprint = null
     session.lastBuffer = null
+    session.contentSignature = null
   },
 }

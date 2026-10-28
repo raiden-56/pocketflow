@@ -6,6 +6,7 @@ import { parseWorkbook, parseWorkbookBuffer, readWorkbookFromBuffer, resolveMont
 import { applyTransactionsToWorkbook, workbookToBuffer, buildWorkbookFromTransactions } from '@/services/excel/workbookWriter'
 import { normalizeDateValue, isoToExcelSerial, excelSerialToDate, toIsoDate } from '@/utils/dateFormatter'
 import { parseAmountValue, formatMoney, formatMoneyShort } from '@/utils/currencyFormatter'
+import { contentSignature, toWorkbookDownloadUrl } from '@/services/excel/sheetLink'
 import type { Transaction } from '@/types/finance'
 
 const TEMPLATE = resolve(__dirname, '..', 'Personal_Money_Tracker_Template_2026.xlsx')
@@ -63,6 +64,31 @@ describe('value normalization', () => {
   })
 })
 
+describe('Google Sheet links', () => {
+  it('converts published and shared links to .xlsx download URLs', () => {
+    expect(toWorkbookDownloadUrl('https://docs.google.com/spreadsheets/d/e/2PACX-1vAbC_d-9/pubhtml')).toBe(
+      'https://docs.google.com/spreadsheets/d/e/2PACX-1vAbC_d-9/pub?output=xlsx',
+    )
+    expect(toWorkbookDownloadUrl(' https://docs.google.com/spreadsheets/d/e/2PACX-1vAbC/pub?gid=0&single=true&output=csv ')).toBe(
+      'https://docs.google.com/spreadsheets/d/e/2PACX-1vAbC/pub?output=xlsx',
+    )
+    expect(toWorkbookDownloadUrl('https://docs.google.com/spreadsheets/d/1AbCdEf_gh-IJ/edit?usp=sharing#gid=0')).toBe(
+      'https://docs.google.com/spreadsheets/d/1AbCdEf_gh-IJ/export?format=xlsx',
+    )
+    expect(toWorkbookDownloadUrl('https://example.com/money.xlsx')).toBe('https://example.com/money.xlsx')
+    expect(() => toWorkbookDownloadUrl('not a link')).toThrow(/not a valid link/)
+    expect(() => toWorkbookDownloadUrl('http://example.com/money.xlsx')).toThrow(/https/)
+  })
+
+  it('changes the content signature only when transaction data changes', () => {
+    const { parsed } = loadTemplate()
+    const { parsed: again } = loadTemplate()
+    expect(contentSignature(again)).toBe(contentSignature(parsed))
+    again.transactions[0] = { ...again.transactions[0], amount: again.transactions[0].amount + 1 }
+    expect(contentSignature(again)).not.toBe(contentSignature(parsed))
+  })
+})
+
 describe('template workbook parsing', () => {
   it('reads all 12 monthly sheets from the template', () => {
     const { parsed } = loadTemplate()
@@ -102,6 +128,35 @@ describe('template workbook parsing', () => {
     expect(parsed.issues.some((i) => i.message.includes('duplicate'))).toBe(true)
     expect(parsed.issues.some((i) => i.message.includes('not in May'))).toBe(true)
     expect(parsed.missingSheets).toHaveLength(11)
+  })
+
+  it('dates rows typed without a date to the start of their sheet month instead of skipping them', () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Date', 'Description', 'Category', 'Type', 'Payment Method', 'Amount (INR)', 'Notes'],
+      [46023, 'Salary', 'Salary', 'Income', 'Bank', 50000, ''],
+    ]), 'January')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Date', 'Description', 'Category', 'Type', 'Payment Method', 'Amount (INR)', 'Notes'],
+      ['', 'RD', 'Savings', 'Expense', '', 10000, ''],
+      [null, 'SIP', '', '', '', '1,500', ''],
+      [null, '', '', '', '', 11500, ''],
+    ]), 'October')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Date', 'Description', 'Category', 'Type', 'Payment Method', 'Amount (INR)', 'Notes'],
+      [null, 'Rent', 'Rent', 'Expense', '', 7000, ''],
+    ]), 'November 2025')
+    const parsed = parseWorkbook(wb)
+    const byDesc = Object.fromEntries(parsed.transactions.map((t) => [t.description, t]))
+    expect(byDesc.RD.date).toBe('2026-10-01')
+    expect(byDesc.SIP.date).toBe('2026-10-01')
+    expect(byDesc.SIP.amount).toBe(1500)
+    expect(byDesc.Rent.date).toBe('2025-11-01')
+    // An amount on its own (likely a total) is still skipped and reported.
+    const errors = parsed.issues.filter((i) => i.severity === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ sheet: 'October', row: 4, field: 'date' })
+    expect(parsed.issues.filter((i) => i.field === 'date' && i.recovered)).toHaveLength(3)
   })
 
   it('reports a fatal error when no monthly sheets exist', () => {
