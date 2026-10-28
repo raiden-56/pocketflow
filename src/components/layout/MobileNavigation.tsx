@@ -1,9 +1,14 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { BottomNavigation, BottomNavigationAction, Paper } from '@mui/material'
+import { BottomNavigation, BottomNavigationAction, Paper, useMediaQuery, useTheme } from '@mui/material'
 import { NAV_ITEMS } from '@/app/routes'
 import { NAV_ICONS } from './Sidebar'
 
+/** Shorter labels so six items fit a phone's bottom bar; tablets keep the full names. */
+const MOBILE_LABELS: Partial<Record<(typeof NAV_ITEMS)[number]['key'], string>> = { dashboard: 'Home', transactions: 'Entries', budget: 'Budget' }
+
 export function MobileNavigation() {
+  const theme = useTheme()
+  const isPhone = useMediaQuery(theme.breakpoints.down('sm'))
   const location = useLocation()
   const navigate = useNavigate()
   const current = NAV_ITEMS.find((i) => (i.path === '/' ? location.pathname === '/' : location.pathname.startsWith(i.path)))?.path ?? '/'
@@ -18,7 +23,7 @@ export function MobileNavigation() {
         {NAV_ITEMS.map((item) => (
           <BottomNavigationAction
             key={item.key}
-            label={item.key === 'budget' ? 'Budget' : item.label}
+            label={(isPhone && MOBILE_LABELS[item.key]) || item.label}
             value={item.path}
             icon={NAV_ICONS[item.key]}
             sx={{ minWidth: 0, px: 0.5, '& .MuiBottomNavigationAction-label': { fontSize: '0.7rem' } }}

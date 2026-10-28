@@ -9,6 +9,7 @@ import { motion } from 'framer-motion'
 import { useExcelConnection } from '@/hooks/useExcelConnection'
 import { palette } from '@/theme/theme'
 import { SheetLinkForm } from './SheetLinkForm'
+import { FIXED_SHEET } from '@/app/config'
 
 const MotionCard = motion.create(Card)
 
@@ -66,10 +67,14 @@ export function ConnectWorkbookEmptyState() {
               )}
             </Stack>
           )}
-          <Typography variant="body2" sx={{ mt: 3, mb: 1, opacity: 0.9 }}>
-            Or read it from Google Sheets:
-          </Typography>
-          <SheetLinkForm onDark />
+          {!FIXED_SHEET.url && (
+            <>
+              <Typography variant="body2" sx={{ mt: 3, mb: 1, opacity: 0.9 }}>
+                Or read it from Google Sheets:
+              </Typography>
+              <SheetLinkForm onDark />
+            </>
+          )}
           <Typography variant="caption" sx={{ display: 'block', mt: 2, opacity: 0.8 }}>
             Don't have a workbook yet?{' '}
             <Link href="/PocketFlow_Blank_Template.xlsx" download color="inherit" underline="always">

@@ -20,6 +20,26 @@ export interface Transaction {
 
 export type TransactionInput = Omit<Transaction, 'id' | 'sourceSheet' | 'sourceRow'>
 
+/** One row of the "Lending" sheet: money someone borrowed or spent on your card. Maintained in the sheet, read-only in the app. */
+export interface LendingEntry {
+  id: string
+  /** ISO date, yyyy-MM-dd; empty when the row has no date. */
+  date: string
+  person: string
+  /** How it was given, e.g. Cash, UPI, Credit card. */
+  via: string
+  /** Card or account used. */
+  card: string
+  purpose: string
+  amount: number
+  cashback: number
+  paidBack: number
+  /** From the sheet's Remaining column when filled, otherwise amount − paid back. */
+  remaining: number
+  notes: string
+  sourceRow: number
+}
+
 export interface Category {
   id: string
   name: string

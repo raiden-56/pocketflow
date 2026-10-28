@@ -8,6 +8,7 @@ const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
 const TransactionsPage = lazy(() => import('@/pages/TransactionsPage'))
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'))
 const BudgetGoalsPage = lazy(() => import('@/pages/BudgetGoalsPage'))
+const LendingPage = lazy(() => import('@/pages/LendingPage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 
 export const NAV_ITEMS = [
@@ -15,6 +16,7 @@ export const NAV_ITEMS = [
   { path: '/transactions', label: 'Transactions', key: 'transactions' },
   { path: '/reports', label: 'Reports', key: 'reports' },
   { path: '/budget', label: 'Budget & Goals', key: 'budget' },
+  { path: '/lending', label: 'Lending', key: 'lending' },
   { path: '/settings', label: 'Settings', key: 'settings' },
 ] as const
 
@@ -28,6 +30,7 @@ export function AppRoutes() {
           <Route path="/transactions" element={<PageTransition><TransactionsPage /></PageTransition>} />
           <Route path="/reports" element={<PageTransition><ReportsPage /></PageTransition>} />
           <Route path="/budget" element={<PageTransition><BudgetGoalsPage /></PageTransition>} />
+          <Route path="/lending" element={<PageTransition><LendingPage /></PageTransition>} />
           <Route path="/settings" element={<PageTransition><SettingsPage /></PageTransition>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

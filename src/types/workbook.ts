@@ -1,4 +1,4 @@
-import type { Transaction } from './finance'
+import type { LendingEntry, Transaction } from './finance'
 
 export const MONTH_SHEETS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -39,6 +39,8 @@ export interface SheetLayout {
 
 export interface ParsedWorkbook {
   transactions: Transaction[]
+  /** Rows of the "Lending" sheet (money lent or card spends by others); empty when there is no such sheet. */
+  lending: LendingEntry[]
   issues: ValidationIssue[]
   sheets: SheetLayout[]
   missingSheets: string[]
@@ -47,8 +49,16 @@ export interface ParsedWorkbook {
   fatalError?: string
 }
 
-/** direct: local file via File System Access API; import: one-off file upload; link: read-only Google Sheets / web link. */
-export type ConnectionMode = 'direct' | 'import' | 'link'
+/**
+ * direct: local file via File System Access API; import: one-off file upload; link: read-only Google Sheets / web link;
+ * gsheet: private Google Sheet read and saved through its PocketFlow Apps Script.
+ */
+export type ConnectionMode = 'direct' | 'import' | 'link' | 'gsheet'
+
+/** Modes where "Save" writes straight back to the workbook (the others export a copy instead). */
+export function canSaveBack(mode: ConnectionMode | null): boolean {
+  return mode === 'direct' || mode === 'gsheet'
+}
 
 export type SyncStatus =
   | 'disconnected'

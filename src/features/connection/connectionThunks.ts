@@ -1,5 +1,6 @@
 import type { AppThunk } from '@/app/store'
-import type { FileFingerprint } from '@/types/workbook'
+import type { ConnectionMode, FileFingerprint } from '@/types/workbook'
+import { FIXED_SHEET } from '@/app/config'
 import {
   FileAccessError,
   downloadBuffer,
@@ -12,8 +13,9 @@ import {
   requestPermission,
   writeHandle,
 } from '@/services/excel/excelFileAccess'
-import { parseWorkbookBuffer } from '@/services/excel/workbookReader'
+import { parseWorkbook, parseWorkbookBuffer } from '@/services/excel/workbookReader'
 import { contentSignature, fetchWorkbookFromLink } from '@/services/excel/sheetLink'
+import { isScriptUrl, readViaScript, rowsBySheet, scriptRowsFromWrite, writeViaScript } from '@/services/excel/sheetScript'
 import { applyTransactionsToWorkbook, buildWorkbookFromTransactions, WorkbookWriteError, workbookToBuffer } from '@/services/excel/workbookWriter'
 import { assessWorkbook } from '@/services/excel/workbookValidator'
 import { detectExternalChange, fingerprintsEqual } from '@/services/excel/syncManager'
@@ -43,7 +45,7 @@ import {
 const CONNECTION_META_KEY = 'connection'
 
 interface ConnectionMeta {
-  mode: 'direct' | 'import' | 'link'
+  mode: ConnectionMode
   fileName: string
   lastSyncedAt: string | null
   /** Link mode: the sheet link, so the app reopens it on the next visit. */
@@ -63,7 +65,7 @@ function timestampedName(fileName: string, suffix: string): string {
 }
 
 /** Parses a buffer and loads it into the store. Returns false when the workbook is unusable. */
-function loadBuffer(buffer: ArrayBuffer, fileName: string, mode: 'direct' | 'import' | 'link', fingerprint: FileFingerprint | null, url?: string): AppThunk<boolean> {
+function loadBuffer(buffer: ArrayBuffer, fileName: string, mode: ConnectionMode, fingerprint: FileFingerprint | null, url?: string): AppThunk<boolean> {
   return (dispatch) => {
     dispatch(connectionStarted({ mode, fileName, sourceUrl: url }))
     try {
@@ -75,7 +77,7 @@ function loadBuffer(buffer: ArrayBuffer, fileName: string, mode: 'direct' | 'imp
       }
       workbookSession.setWorkbook(workbook, buffer)
       workbookSession.setFingerprint(fingerprint)
-      workbookSession.setContentSignature(mode === 'link' ? contentSignature(parsed) : null)
+      workbookSession.setContentSignature(mode === 'link' || mode === 'gsheet' ? contentSignature(parsed) : null)
       const at = new Date().toISOString()
       dispatch(workbookLoaded({ parsed, loadedAt: at }))
       dispatch(loadSucceeded({ at, summary: [health.headline, ...health.structural].join(' ') }))
@@ -146,26 +148,41 @@ export function importWorkbook(): AppThunk<Promise<void>> {
   }
 }
 
+/** Downloads a sheet link: the private Apps Script (/exec URL) or a published / public .xlsx link. */
+async function fetchSheet(url: string): Promise<{ buffer: ArrayBuffer; name: string; mode: 'link' | 'gsheet' }> {
+  if (isScriptUrl(url)) {
+    const { workbook, name } = await readViaScript(url, FIXED_SHEET.key ?? '')
+    return { buffer: workbookToBuffer(workbook), name, mode: 'gsheet' }
+  }
+  const { buffer, name } = await fetchWorkbookFromLink(url)
+  return { buffer, name, mode: 'link' }
+}
+
 function readAndLoadLink(url: string): AppThunk<Promise<boolean>> {
   return async (dispatch) => {
     try {
-      const { buffer, name } = await fetchWorkbookFromLink(url)
-      return dispatch(loadBuffer(buffer, name, 'link', null, url))
+      const { buffer, name, mode } = await fetchSheet(url)
+      return dispatch(loadBuffer(buffer, name, mode, null, url))
     } catch (err) {
-      dispatch(connectionStarted({ mode: 'link', fileName: 'Google Sheet', sourceUrl: url }))
+      dispatch(connectionStarted({ mode: isScriptUrl(url) ? 'gsheet' : 'link', fileName: 'Google Sheet', sourceUrl: url }))
       dispatch(loadFailed(errorMessage(err)))
       return false
     }
   }
 }
 
-/** Mode 3: read a Google Sheet (published to the web) or any public .xlsx link. Read-only; edits are exported. */
+/**
+ * Mode 3/4: a Google Sheet. A "Publish to web" or other public .xlsx link is read-only (edits are exported);
+ * the PocketFlow Apps Script URL keeps the sheet private and saves edits straight into it.
+ */
 export function connectLink(url: string): AppThunk<Promise<boolean>> {
   return async (dispatch) => {
     workbookSession.setHandle(null)
     await clearWorkbookHandle()
     const ok = await dispatch(readAndLoadLink(url.trim()))
-    if (ok) dispatch(showToast('Connected to the Google Sheet. Edits made in Google Sheets appear here automatically.', 'success'))
+    if (ok) {
+      dispatch(showToast(isScriptUrl(url) ? 'Connected to your Google Sheet.' : 'Connected to the Google Sheet. Edits made in Google Sheets appear here automatically.', 'success'))
+    }
     return ok
   }
 }
@@ -176,8 +193,10 @@ export function restoreConnection(): AppThunk<Promise<void>> {
     dispatch(restoreStarted())
     try {
       const meta = loadLocal<ConnectionMeta | null>(CONNECTION_META_KEY, null)
-      // VITE_SHEET_URL (e.g. in .env.local) is the default Google Sheet when this browser has no saved connection.
-      const linkUrl = meta?.mode === 'link' ? meta.url : meta ? undefined : (import.meta.env.VITE_SHEET_URL as string | undefined)?.trim()
+      // The sheet fixed in .env.local wins over a link this browser remembers; a connected local file still wins over both.
+      const fileConnected = meta?.mode === 'direct' || meta?.mode === 'import'
+      const rememberedLink = meta?.mode === 'link' || meta?.mode === 'gsheet' ? meta.url : undefined
+      const linkUrl = fileConnected ? undefined : (FIXED_SHEET.url ?? rememberedLink)
       if (linkUrl) {
         await dispatch(readAndLoadLink(linkUrl))
         return
@@ -240,7 +259,7 @@ export function refreshFromExcel(options: { force?: boolean; silent?: boolean } 
       await dispatch(importWorkbook())
       return getState().connection.status === 'failed' ? 'failed' : 'ok'
     }
-    if (connection.mode === 'link' && connection.sourceUrl) {
+    if ((connection.mode === 'link' || connection.mode === 'gsheet') && connection.sourceUrl) {
       const ok = await dispatch(readAndLoadLink(connection.sourceUrl))
       if (ok && !options.silent) dispatch(showToast('Reloaded from Google Sheet', 'success'))
       return ok ? 'ok' : 'failed'
@@ -256,22 +275,24 @@ export function refreshFromExcel(options: { force?: boolean; silent?: boolean } 
   }
 }
 
-/** Link mode polling: re-downloads the sheet and reloads when its data changed and there are no unsaved edits. */
+/** Google Sheet polling: re-reads the sheet and reloads when its data changed and there are no unsaved edits. */
 function checkLinkForChanges(): AppThunk<Promise<void>> {
   return async (dispatch, getState) => {
-    const { connection, transactions } = getState()
+    const { connection } = getState()
     if (!connection.sourceUrl || connection.loading || connection.saving || connection.status === 'conflict') return
     try {
-      const { buffer, name } = await fetchWorkbookFromLink(connection.sourceUrl)
+      const { buffer, name, mode } = await fetchSheet(connection.sourceUrl)
       dispatch(checked({ at: new Date().toISOString() }))
+      // The user may have saved from the app while this request was in flight.
+      if (getState().connection.saving) return
       const { parsed } = parseWorkbookBuffer(buffer)
       if (contentSignature(parsed) === workbookSession.contentSignature) return
-      if (transactions.dirty) {
+      if (getState().transactions.dirty) {
         dispatch(conflictDetected())
         dispatch(showToast('The Google Sheet changed while you have unsaved edits.', 'warning'))
         return
       }
-      if (dispatch(loadBuffer(buffer, name, 'link', null, connection.sourceUrl))) {
+      if (dispatch(loadBuffer(buffer, name, mode, null, connection.sourceUrl))) {
         dispatch(showToast('Google Sheet changed. Latest data loaded.', 'info'))
       }
     } catch (err) {
@@ -284,7 +305,7 @@ function checkLinkForChanges(): AppThunk<Promise<void>> {
 export function checkForExternalChanges(): AppThunk<Promise<void>> {
   return async (dispatch, getState) => {
     const { connection, transactions } = getState()
-    if (connection.mode === 'link') return dispatch(checkLinkForChanges())
+    if (connection.mode === 'link' || connection.mode === 'gsheet') return dispatch(checkLinkForChanges())
     const handle = workbookSession.handle
     if (connection.mode !== 'direct' || !handle || connection.loading || connection.saving) return
     if (connection.status === 'permission-required' || connection.status === 'conflict') return
@@ -309,12 +330,56 @@ export function checkForExternalChanges(): AppThunk<Promise<void>> {
   }
 }
 
+/** Saves pending changes into the private Google Sheet through its Apps Script. */
+function saveToGoogleSheet(options: { overwriteExternal?: boolean }): AppThunk<Promise<boolean>> {
+  return async (dispatch, getState) => {
+    const { connection, transactions } = getState()
+    const url = connection.sourceUrl
+    const base = workbookSession.workbook
+    if (!url || !base) {
+      dispatch(saveFailed('No Google Sheet is connected. Your changes are still in memory and have NOT been saved.'))
+      return false
+    }
+    const key = FIXED_SHEET.key ?? ''
+    dispatch(savingStarted())
+    try {
+      if (!options.overwriteExternal) {
+        const latest = await readViaScript(url, key)
+        if (contentSignature(parseWorkbook(latest.workbook)) !== workbookSession.contentSignature) {
+          dispatch(conflictDetected())
+          dispatch(showToast('The Google Sheet changed since it was loaded. Review the conflict before saving.', 'warning'))
+          return false
+        }
+      }
+      // Only monthly sheets whose rows changed are sent, which keeps saves quick.
+      const before = rowsBySheet(parseWorkbook(base).transactions, base.SheetNames)
+      const result = applyTransactionsToWorkbook(base, transactions.items)
+      const saved = await writeViaScript(url, key, scriptRowsFromWrite(result, before))
+      const buffer = workbookToBuffer(saved.workbook)
+      const reread = parseWorkbookBuffer(buffer)
+      workbookSession.setWorkbook(reread.workbook, buffer)
+      workbookSession.setContentSignature(contentSignature(reread.parsed))
+      const at = new Date().toISOString()
+      dispatch(changesSaved({ transactions: result.transactions, savedAt: at }))
+      dispatch(saveSucceeded({ at }))
+      saveLocal<ConnectionMeta>(CONNECTION_META_KEY, { mode: 'gsheet', fileName: saved.name, lastSyncedAt: at, url })
+      dispatch(showToast('Saved to your Google Sheet', 'success'))
+      return true
+    } catch (err) {
+      dispatch(saveFailed(`${errorMessage(err)} Your changes are still in memory and have NOT been saved to Google Sheets.`))
+      return false
+    }
+  }
+}
+
 /** Writes pending changes to the connected file (direct mode) or downloads an updated workbook (import mode). */
 export function saveChanges(options: { overwriteExternal?: boolean } = {}): AppThunk<Promise<boolean>> {
   return async (dispatch, getState) => {
     const { connection, transactions } = getState()
     if (!connection.mode) return false
     const items = transactions.items
+
+    if (connection.mode === 'gsheet') return dispatch(saveToGoogleSheet(options))
 
     if (connection.mode === 'import' || connection.mode === 'link') {
       try {

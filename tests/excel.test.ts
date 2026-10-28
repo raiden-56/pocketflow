@@ -7,6 +7,8 @@ import { applyTransactionsToWorkbook, workbookToBuffer, buildWorkbookFromTransac
 import { normalizeDateValue, isoToExcelSerial, excelSerialToDate, toIsoDate } from '@/utils/dateFormatter'
 import { parseAmountValue, formatMoney, formatMoneyShort } from '@/utils/currencyFormatter'
 import { contentSignature, toWorkbookDownloadUrl } from '@/services/excel/sheetLink'
+import { isScriptUrl, rowsBySheet, scriptRowsFromWrite, workbookFromScriptSheets } from '@/services/excel/sheetScript'
+import { balancesByPerson, cardUsage, lendingTotals } from '@/utils/lendingCalculations'
 import type { Transaction } from '@/types/finance'
 
 const TEMPLATE = resolve(__dirname, '..', 'Personal_Money_Tracker_Template_2026.xlsx')
@@ -270,5 +272,106 @@ describe('writing changes back to the workbook', () => {
     const parsed = parseWorkbook(wb)
     expect(parsed.transactions).toHaveLength(1)
     expect(parsed.transactions[0].sourceSheet).toBe('February')
+  })
+})
+
+describe('year-named month sheets', () => {
+  const header = ['Date', 'Description', 'Category', 'Type', 'Payment Method', 'Amount (INR)', 'Notes']
+
+  it('reads "January 2026" and "January 2027" as separate sheets and writes each row to its own year', () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ['2026-01-05', 'Rent', 'Rent', 'Expense', '', 7000, '']]), 'January 2026')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ['2027-01-05', 'Rent', 'Rent', 'Expense', '', 7500, ''], ['2026-01-09', 'Wrong year', 'Food', 'Expense', '', 50, '']]), 'January 2027')
+    const parsed = parseWorkbook(wb)
+    expect(parsed.issues.some((i) => i.message.includes('Duplicate'))).toBe(false)
+    expect(parsed.transactions).toHaveLength(3)
+    expect(parsed.issues.some((i) => i.message.includes('not in January 2027'))).toBe(true)
+
+    const added: Transaction = { id: 'n', date: '2027-03-02', description: 'SIP', category: 'Savings', type: 'Expense', paymentMethod: 'UPI', amount: 1500, notes: '' }
+    const result = applyTransactionsToWorkbook(wb, [...parsed.transactions, added])
+    expect(result.createdSheets).toEqual(['March 2027'])
+    expect(result.workbook.SheetNames).toEqual(['January 2026', 'January 2027', 'March 2027'])
+    const sheetOf = (d: string) => result.transactions.find((t) => t.description === d)!.sourceSheet
+    expect(sheetOf('Wrong year')).toBe('January 2026')
+    expect(result.transactions.filter((t) => t.sourceSheet === 'January 2027').map((t) => t.amount)).toEqual([7500])
+    expect(sheetOf('SIP')).toBe('March 2027')
+  })
+
+  it('keeps plain month sheets for every year in workbooks without year names', () => {
+    const { workbook, parsed } = loadTemplate()
+    const next: Transaction = { id: 'y', date: '2027-02-01', description: 'Next year', category: 'Food', type: 'Expense', paymentMethod: 'UPI', amount: 10, notes: '' }
+    const result = applyTransactionsToWorkbook(workbook, [...parsed.transactions, next])
+    expect(result.createdSheets).toEqual([])
+    expect(result.transactions.find((t) => t.id === 'y')!.sourceSheet).toBe('February')
+  })
+})
+
+describe('Lending sheet', () => {
+  it('reads people, cashback and paid amounts, using the sheet Remaining column when filled', () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Date', 'Description', 'Category', 'Type', 'Payment Method', 'Amount (INR)', 'Notes']]), 'January')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['Date', 'Person', 'Given via', 'Card / account', 'Purpose', 'Amount (INR)', 'Cashback (INR)', 'Paid back (INR)', 'Remaining (INR)', 'Notes'],
+      ['2026-11-03', 'Ravi', 'Credit card', 'HDFC Millennia', 'Phone', 20000, 300, 5000, 15000, ''],
+      ['2026-11-10', 'ravi ', 'Cash', '', 'Trip', 3000, '', 3000, '', 'settled'],
+      ['2026-11-12', 'Anil', 'UPI', '', 'Rent help', 5000, '', '', 4000, 'custom remaining'],
+      ['', '', '', '', '', '', '', '', '', ''],
+    ]), 'Lending')
+    const parsed = parseWorkbook(wb)
+    expect(parsed.lending).toHaveLength(3)
+    expect(parsed.lending[1]).toMatchObject({ person: 'ravi', amount: 3000, paidBack: 3000, remaining: 0, notes: 'settled' })
+    expect(parsed.lending[2].remaining).toBe(4000)
+    expect(parsed.otherSheets).toContain('Lending')
+
+    expect(lendingTotals(parsed.lending)).toEqual({ taken: 28000, paidBack: 8000, remaining: 19000, cashback: 300 })
+    const people = balancesByPerson(parsed.lending)
+    expect(people.map((p) => [p.person, p.entries, p.remaining])).toEqual([['Ravi', 2, 15000], ['Anil', 1, 4000]])
+    expect(cardUsage(parsed.lending)).toEqual([{ card: 'HDFC Millennia', entries: 1, taken: 20000, paidBack: 5000, remaining: 15000, cashback: 300 }])
+  })
+
+  it('has no lending entries when the workbook has no Lending sheet', () => {
+    expect(loadTemplate().parsed.lending).toEqual([])
+  })
+})
+
+describe('private Google Sheet (Apps Script) round trip', () => {
+  it('parses script sheet values and sends back rows for every monthly sheet, including emptied ones', () => {
+    const header = ['Date', 'Description', 'Category', 'Type', 'Payment Method', 'Amount (INR)', 'Notes']
+    const wb = workbookFromScriptSheets([
+      { name: 'Summary', rows: [['Month', 'Income'], ['January', 0]] },
+      { name: 'November 2026', rows: [header, ['2026-11-01', 'Salary', 'Salary', 'Income', '', 91600, ''], ['2026-11-01', 'Rent', 'Rent', 'Expense', '', 7000, '']] },
+      { name: 'December 2026', rows: [header, ['2026-12-01', 'Old', 'Food', 'Expense', '', 10, '']] },
+    ])
+    const parsed = parseWorkbook(wb)
+    expect(parsed.transactions.map((t) => [t.date, t.description, t.amount])).toEqual([
+      ['2026-11-01', 'Salary', 91600],
+      ['2026-11-01', 'Rent', 7000],
+      ['2026-12-01', 'Old', 10],
+    ])
+    const kept = parsed.transactions.filter((t) => t.description !== 'Old')
+    const rows = scriptRowsFromWrite(applyTransactionsToWorkbook(wb, kept))
+    expect(Object.keys(rows)).toEqual(['November 2026', 'December 2026'])
+    expect(rows['December 2026']).toEqual([])
+    expect(rows['November 2026'][0]).toEqual(['2026-11-01', 'Salary', 'Salary', 'Income', '', 91600, ''])
+  })
+
+  it('recognizes Apps Script web app URLs', () => {
+    expect(isScriptUrl('https://script.google.com/macros/s/AKfycbx-ABC_123/exec')).toBe(true)
+    expect(isScriptUrl('https://docs.google.com/spreadsheets/d/e/2PACX-1v/pubhtml')).toBe(false)
+  })
+})
+
+describe('private Google Sheet saves', () => {
+  it('sends only the monthly sheets whose rows changed', () => {
+    const header = ['Date', 'Description', 'Category', 'Type', 'Payment Method', 'Amount (INR)', 'Notes']
+    const wb = workbookFromScriptSheets([
+      { name: 'October 2026', rows: [header] },
+      { name: 'November 2026', rows: [header, ['2026-11-01', 'Rent', 'Rent', 'Expense', '', 7000, '']] },
+    ])
+    const parsed = parseWorkbook(wb)
+    const before = rowsBySheet(parsed.transactions, wb.SheetNames)
+    const added: Transaction = { id: 'a', date: '2026-10-28', description: 'Test', category: 'Food', type: 'Expense', paymentMethod: 'UPI', amount: 1, notes: '' }
+    const rows = scriptRowsFromWrite(applyTransactionsToWorkbook(wb, [...parsed.transactions, added]), before)
+    expect(rows).toEqual({ 'October 2026': [['2026-10-28', 'Test', 'Food', 'Expense', 'UPI', 1, '']] })
   })
 })

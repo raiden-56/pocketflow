@@ -170,7 +170,7 @@ export function TransactionForm({ initial, categories, extraCategories = [], pay
           </Grid>
         </Grid>
         <Typography variant="caption" color="text.secondary">
-          Saved into the monthly worksheet matching the transaction date when you click Save to Excel.
+          Saved into the month sheet matching the transaction date when you click Save.
         </Typography>
         <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1.5}  sx={{ justifyContent: 'flex-end' }}>
           <Button onClick={onCancel} color="inherit" disabled={submitting || isSubmitting}>

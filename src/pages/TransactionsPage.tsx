@@ -10,6 +10,7 @@ import { selectAllCategoryNames, selectAllPaymentMethods, selectYears } from '@/
 import { openTransactionDialog, showToast } from '@/features/ui/uiSlice'
 import { useExcelConnection } from '@/hooks/useExcelConnection'
 import { useFormatters } from '@/hooks/useFormatters'
+import { useFillHeight } from '@/hooks/useFillHeight'
 import { SectionCard } from '@/components/common/SectionCard'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
@@ -21,12 +22,16 @@ import { TransactionCard } from '@/components/transactions/TransactionCard'
 import { DeleteTransactionDialog } from '@/components/transactions/DeleteTransactionDialog'
 import { monthOfIso, yearOfIso } from '@/utils/dateFormatter'
 import { summarize } from '@/utils/financeCalculations'
+import { canSaveBack } from '@/types/workbook'
 
-const PAGE_SIZE = 25
+const PAGE_SIZE = 10
+/** Space kept below the list: the pagination bar plus the page's bottom padding (larger above the phone navigation). */
+const PAGINATION_HEIGHT = 56
 
 export default function TransactionsPage() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+  const [listRef, listHeight] = useFillHeight(PAGINATION_HEIGHT + (isMobile ? 88 : 32))
   const dispatch = useAppDispatch()
   const c = useExcelConnection()
   const { money, date } = useFormatters()
@@ -130,22 +135,39 @@ export default function TransactionsPage() {
             }
           />
         </SectionCard>
-      ) : isMobile ? (
-        <Stack component={motion.div} variants={staggerContainer} initial="hidden" animate="show" spacing={1.5}>
-          {visible.map((tx) => (
-            <TransactionCard key={tx.id} tx={tx} money={money} date={date} onEdit={(id) => dispatch(openTransactionDialog(id))} onDelete={setDeletingId} />
-          ))}
-        </Stack>
       ) : (
-        <SectionCard disablePadding animate={false}>
-          <TransactionTable items={visible} money={money} date={date} sortBy={filters.sortBy} sortDir={filters.sortDir} onSort={onSort} onEdit={(id) => dispatch(openTransactionDialog(id))} onDelete={setDeletingId} />
-        </SectionCard>
-      )}
-
-      {pageCount > 1 && (
-        <Stack  sx={{ alignItems: 'center' }}>
-          <Pagination count={pageCount} page={safePage} onChange={(_, p) => setPage(p)} color="primary" shape="rounded" />
-        </Stack>
+        // The list scrolls inside its own box so the pagination bar always sits at the bottom of the screen.
+        <Box>
+          {isMobile ? (
+            <Box ref={listRef} key={safePage} sx={{ height: listHeight, overflowY: 'auto', overscrollBehavior: 'contain', mx: -0.5, px: 0.5 }}>
+              <Stack component={motion.div} variants={staggerContainer} initial="hidden" animate="show" spacing={1.5} sx={{ pb: 0.5 }}>
+                {visible.map((tx) => (
+                  <TransactionCard key={tx.id} tx={tx} money={money} date={date} onEdit={(id) => dispatch(openTransactionDialog(id))} onDelete={setDeletingId} />
+                ))}
+              </Stack>
+            </Box>
+          ) : (
+            <SectionCard disablePadding animate={false}>
+              <Box ref={listRef}>
+                <TransactionTable key={safePage} height={listHeight} items={visible} money={money} date={date} sortBy={filters.sortBy} sortDir={filters.sortDir} onSort={onSort} onEdit={(id) => dispatch(openTransactionDialog(id))} onDelete={setDeletingId} />
+              </Box>
+            </SectionCard>
+          )}
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', height: PAGINATION_HEIGHT, pt: 1.5 }}>
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </Typography>
+            <Pagination
+              count={pageCount}
+              page={safePage}
+              onChange={(_, p) => setPage(p)}
+              color="primary"
+              shape="rounded"
+              size={isMobile ? 'small' : 'medium'}
+              siblingCount={isMobile ? 0 : 1}
+            />
+          </Stack>
+        </Box>
       )}
 
       <DeleteTransactionDialog
@@ -156,7 +178,7 @@ export default function TransactionsPage() {
         onConfirm={() => {
           if (deletingId) {
             dispatch(deleteTransaction(deletingId))
-            dispatch(showToast(c.mode !== 'direct' ? 'Transaction removed in memory. Export to keep the change.' : 'Transaction removed. Save to update Excel.', 'success'))
+            dispatch(showToast(canSaveBack(c.mode) ? 'Transaction removed. Click Save to update your sheet.' : 'Transaction removed in memory. Export to keep the change.', 'success'))
           }
           setDeletingId(null)
         }}

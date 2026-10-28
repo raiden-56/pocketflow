@@ -10,6 +10,7 @@ import {
 import { normalizeDateValue, monthOfIso, toIsoDate, formatDisplayDate, yearOfIso } from '@/utils/dateFormatter'
 import { parseAmountValue, roundMoney } from '@/utils/currencyFormatter'
 import { createId } from '@/utils/id'
+import { parseLending } from './lendingReader'
 
 /** Header aliases (lower-cased, punctuation stripped) → column key. */
 const HEADER_ALIASES: Record<ColumnKey, string[]> = {
@@ -102,7 +103,7 @@ export function detectLayout(sheetName: string, rows: unknown[][]): SheetLayout 
 }
 
 /** A 4-digit year in the sheet name ("October 2026", "Oct-2026"), if any. */
-function yearFromSheetName(sheetName: string): number | null {
+export function yearFromSheetName(sheetName: string): number | null {
   const match = sheetName.match(/(?:^|\D)((?:19|20)\d{2})(?!\d)/)
   return match ? Number(match[1]) : null
 }
@@ -146,9 +147,10 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
   /** Rows typed without a date; dated to the 1st of their sheet's month once the workbook year is known. */
   const undated: { tx: Transaction; month: number; sheetYear: number | null }[] = []
 
-  const issue =(partial: Omit<ValidationIssue, 'id'>) => {
+  const issue = (partial: Omit<ValidationIssue, 'id'>) => {
     issues.push({ id: createId('issue'), ...partial })
   }
+  const seenSheets = new Set<string>()
 
   for (const sheetName of workbook.SheetNames) {
     const month = resolveMonthSheet(sheetName)
@@ -156,10 +158,14 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
       otherSheets.push(sheetName)
       continue
     }
-    if (foundMonths.has(month)) {
-      issue({ severity: 'warning', sheet: sheetName, message: `Duplicate worksheet for ${month}; the first one is used and this sheet is ignored.` })
+    // "January" and "January 2027" are different sheets; two sheets for the same month and year are not.
+    const sheetYear = yearFromSheetName(sheetName)
+    const sheetKey = `${month}|${sheetYear ?? ''}`
+    if (seenSheets.has(sheetKey)) {
+      issue({ severity: 'warning', sheet: sheetName, message: `Duplicate worksheet for ${month}${sheetYear ? ` ${sheetYear}` : ''}; the first one is used and this sheet is ignored.` })
       continue
     }
+    seenSheets.add(sheetKey)
     foundMonths.add(month)
     const sheet = workbook.Sheets[sheetName]
     const rows = sheetToRows(sheet)
@@ -179,7 +185,6 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
     }
 
     const monthIndex = MONTH_SHEETS.indexOf(month) + 1
-    const sheetYear = yearFromSheetName(sheetName)
     const seen = new Map<string, number>()
 
     for (let r = layout.headerRow + 1; r < rows.length; r += 1) {
@@ -255,13 +260,13 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
         issue({ severity: 'warning', sheet: sheetName, row: excelRow, field: 'category', message: 'Category is empty; shown as "Uncategorized".', recovered: true })
       }
 
-      if (flagMonthMismatch && date && monthOfIso(date) !== monthIndex) {
+      if (flagMonthMismatch && date && (monthOfIso(date) !== monthIndex || (sheetYear !== null && yearOfIso(date) !== sheetYear))) {
         issue({
           severity: 'warning',
           sheet: sheetName,
           row: excelRow,
           field: 'date',
-          message: `Dated ${date}, which is not in ${month}. It is reported under its own date; saving will move it to the matching month sheet.`,
+          message: `Dated ${date}, which is not in ${month}${sheetYear ? ` ${sheetYear}` : ''}. It is reported under its own date; saving will move it to the matching month sheet.`,
           recovered: true,
         })
       }
@@ -315,8 +320,11 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
     }
   }
 
+  const lending = parseLending(workbook, sheetToRows)
+  lending.issues.forEach(issue)
+
   const missingSheets = MONTH_SHEETS.filter((m) => !foundMonths.has(m))
-  const result: ParsedWorkbook = { transactions, issues, sheets, missingSheets, otherSheets }
+  const result: ParsedWorkbook = { transactions, lending: lending.entries, issues, sheets, missingSheets, otherSheets }
   if (foundMonths.size === 0) {
     result.fatalError = workbook.SheetNames.length === 0
       ? 'The workbook is empty.'

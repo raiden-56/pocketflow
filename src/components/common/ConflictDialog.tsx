@@ -16,6 +16,7 @@ import {
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined'
 import { useExcelConnection } from '@/hooks/useExcelConnection'
 import { formatDateTime } from '@/utils/dateFormatter'
+import { canSaveBack } from '@/types/workbook'
 
 /**
  * Shown when the workbook changed externally while there are unsaved in-app edits, or when the user
@@ -72,7 +73,7 @@ export function ConflictDialog() {
           </List>
           <Typography variant="body2" color="text.secondary">
             <strong>Reload from Excel</strong> keeps the file as it is on disk and discards the in-app edits above.{' '}
-            {mode === 'direct' && (
+            {canSaveBack(mode) && (
               <>
                 <strong>Save my changes</strong> rewrites the workbook from the app's current data, replacing the external edits in the monthly sheets.
               </>
@@ -87,7 +88,7 @@ export function ConflictDialog() {
         <Button onClick={() => run(conflictReload)} disabled={working} variant="outlined" color="warning">
           Reload from Excel (discard mine)
         </Button>
-        {mode === 'direct' && (
+        {canSaveBack(mode) && (
           <Button onClick={() => run(conflictOverwrite)} disabled={working || pendingChanges.length === 0} variant="contained">
             Save my changes (overwrite)
           </Button>

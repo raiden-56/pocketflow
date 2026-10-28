@@ -12,6 +12,8 @@ import { SyncStatusChip } from '@/components/common/SyncStatus'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { formatDateTime } from '@/utils/dateFormatter'
 import { SheetLinkForm } from './SheetLinkForm'
+import { FIXED_SHEET } from '@/app/config'
+import { canSaveBack } from '@/types/workbook'
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -39,7 +41,9 @@ export function ExcelConnectionPanel() {
     c.mode === 'direct' ? 'Direct file connection (reads and writes the file on disk)'
     : c.mode === 'import' ? 'Import / export (changes stay in memory until exported)'
     : c.mode === 'link' ? 'Google Sheet link (read-only, reloads when the sheet changes)'
+    : c.mode === 'gsheet' ? 'Private Google Sheet (saves straight into the sheet, reloads when it changes)'
     : '—'
+  const saveBack = canSaveBack(c.mode)
 
   return (
     <Stack spacing={2}>
@@ -66,6 +70,13 @@ export function ExcelConnectionPanel() {
           {c.lastExportAt && ` Last export: ${formatDateTime(c.lastExportAt)}.`}
         </Alert>
       )}
+      {c.mode === 'gsheet' && c.isConnected && c.status !== 'failed' && (
+        <Alert severity={c.dirty ? 'warning' : 'info'}>
+          {c.dirty
+            ? `${c.pendingChanges.length} change${c.pendingChanges.length === 1 ? '' : 's'} not saved yet. Click "Save changes to Google Sheet" to write them into your sheet.`
+            : 'Your Google Sheet is private. Changes you save here go straight into it, and edits made in Google Sheets show up here within about a minute.'}
+        </Alert>
+      )}
       {c.mode === 'link' && c.isConnected && c.status !== 'failed' && (
         <Alert severity={c.dirty ? 'warning' : 'info'}>
           {c.dirty
@@ -78,9 +89,8 @@ export function ExcelConnectionPanel() {
         <Row label="Status" value={<SyncStatusChip status={c.status} fileName={c.fileName} lastSyncedAt={c.lastSyncedAt} pendingCount={c.pendingChanges.length} />} />
         <Row label="Workbook" value={c.fileName ?? 'No workbook connected'} />
         <Row label="Connection mode" value={modeLabel} />
-        {c.mode === 'link' && c.sourceUrl && <Row label="Sheet link" value={<Link href={c.sourceUrl} target="_blank" rel="noopener noreferrer">{c.sourceUrl}</Link>} />}
         <Row label="Last successful sync" value={formatDateTime(c.lastSyncedAt)} />
-        {(c.mode === 'direct' || c.mode === 'link') && <Row label="Last change check" value={formatDateTime(c.lastCheckedAt)} />}
+        {c.mode !== 'import' && <Row label="Last change check" value={formatDateTime(c.lastCheckedAt)} />}
         <Row label="Unsaved changes" value={c.pendingChanges.length ? <Chip size="small" color="warning" label={`${c.pendingChanges.length} pending`} /> : 'None'} />
         {c.loadSummary && <Row label="Last load" value={c.loadSummary} />}
       </Box>
@@ -109,12 +119,12 @@ export function ExcelConnectionPanel() {
         )}
         {c.isConnected && (
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => void c.refresh()} disabled={c.loading || c.saving}>
-            {c.mode === 'import' ? 'Re-import from file' : c.mode === 'link' ? 'Reload from Google Sheet' : 'Refresh from Excel'}
+            {c.mode === 'import' ? 'Re-import from file' : c.mode === 'link' || c.mode === 'gsheet' ? 'Reload from Google Sheet' : 'Refresh from Excel'}
           </Button>
         )}
         {c.isConnected && (
           <Button variant={c.dirty ? 'contained' : 'outlined'} color={c.dirty ? 'warning' : 'primary'} startIcon={<SaveOutlinedIcon />} onClick={() => void c.save()} disabled={!c.dirty || c.saving}>
-            {c.mode === 'direct' ? 'Save changes to Excel' : 'Export updated workbook'}
+            {c.mode === 'gsheet' ? 'Save changes to Google Sheet' : saveBack ? 'Save changes to Excel' : 'Export updated workbook'}
           </Button>
         )}
         {c.isConnected && (
@@ -124,7 +134,8 @@ export function ExcelConnectionPanel() {
         )}
       </Stack>
 
-      <SheetLinkForm key={c.sourceUrl ?? 'none'} />
+      {/* The sheet fixed in .env.local is not changed from here, and its link is never shown. */}
+      {!FIXED_SHEET.url && <SheetLinkForm key={c.sourceUrl ?? 'none'} />}
 
       <Button size="small" color="inherit" startIcon={<HelpOutlineIcon />} onClick={() => setShowHelp((v) => !v)} sx={{ alignSelf: 'flex-start' }}>
         Connection troubleshooting

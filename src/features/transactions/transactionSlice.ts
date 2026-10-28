@@ -1,11 +1,13 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit'
-import type { Transaction, TransactionInput } from '@/types/finance'
+import type { LendingEntry, Transaction, TransactionInput } from '@/types/finance'
 import type { ParsedWorkbook, PendingChange, SheetLayout, ValidationIssue } from '@/types/workbook'
 import { createId } from '@/utils/id'
 import { roundMoney } from '@/utils/currencyFormatter'
 
 export interface TransactionState {
   items: Transaction[]
+  /** Read-only rows of the workbook's Lending sheet. */
+  lending: LendingEntry[]
   issues: ValidationIssue[]
   sheets: SheetLayout[]
   missingSheets: string[]
@@ -18,6 +20,7 @@ export interface TransactionState {
 
 const initialState: TransactionState = {
   items: [],
+  lending: [],
   issues: [],
   sheets: [],
   missingSheets: [],
@@ -49,6 +52,7 @@ const transactionSlice = createSlice({
     workbookLoaded(state, action: PayloadAction<{ parsed: ParsedWorkbook; loadedAt: string }>) {
       const { parsed, loadedAt } = action.payload
       state.items = parsed.transactions
+      state.lending = parsed.lending
       state.issues = parsed.issues
       state.sheets = parsed.sheets
       state.missingSheets = parsed.missingSheets

@@ -15,12 +15,14 @@ interface Props {
   onSort: (key: SortKey) => void
   onEdit: (id: string) => void
   onDelete: (id: string) => void
+  /** Fixed height; rows then scroll inside the table under a sticky header. */
+  height?: number
 }
 
-export function TransactionTable({ items, money, date, sortBy, sortDir, onSort, onEdit, onDelete }: Props) {
+export function TransactionTable({ items, money, date, sortBy, sortDir, onSort, onEdit, onDelete, height }: Props) {
   return (
-    <TableContainer sx={{ overflowX: 'auto' }}>
-      <Table size="medium" aria-label="Transactions" sx={{ minWidth: 760 }}>
+    <TableContainer sx={{ overflow: 'auto', height }}>
+      <Table size="medium" stickyHeader aria-label="Transactions" sx={{ minWidth: 760 }}>
         <TableHead>
           <TableRow>
             <TableCell sortDirection={sortBy === 'date' ? sortDir : false}>

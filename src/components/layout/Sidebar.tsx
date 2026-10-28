@@ -5,6 +5,7 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import SavingsOutlinedIcon from '@mui/icons-material/SavingsOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
+import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { useAppDispatch, useAppSelector } from '@/app/store'
@@ -21,6 +22,7 @@ export const NAV_ICONS: Record<(typeof NAV_ITEMS)[number]['key'], React.ReactEle
   transactions: <ReceiptLongOutlinedIcon />,
   reports: <AssessmentOutlinedIcon />,
   budget: <SavingsOutlinedIcon />,
+  lending: <HandshakeOutlinedIcon />,
   settings: <SettingsOutlinedIcon />,
 }
 

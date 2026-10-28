@@ -6,6 +6,7 @@ import { closeTransactionDialog, showToast } from '@/features/ui/uiSlice'
 import { addTransaction, updateTransaction } from '@/features/transactions/transactionSlice'
 import { selectAllCategoryNames, selectAllPaymentMethods } from '@/features/transactions/selectors'
 import type { TransactionInput } from '@/types/finance'
+import { canSaveBack } from '@/types/workbook'
 import { TransactionForm } from './TransactionForm'
 
 /** Global add/edit dialog driven by ui.transactionDialog (full-screen on phones). */
@@ -32,10 +33,10 @@ export function TransactionDialog() {
   const submit = (values: TransactionInput) => {
     if (editing) {
       dispatch(updateTransaction({ id: editing.id, changes: values }))
-      dispatch(showToast(mode !== 'direct' ? 'Transaction updated in memory. Export to keep it.' : 'Transaction updated. Save to write it to Excel.', 'success'))
+      dispatch(showToast(canSaveBack(mode) ? 'Transaction updated. Click Save to write it to your sheet.' : 'Transaction updated in memory. Export to keep it.', 'success'))
     } else {
       dispatch(addTransaction(values))
-      dispatch(showToast(mode !== 'direct' ? 'Transaction added in memory. Export to keep it.' : 'Transaction added. Save to write it to Excel.', 'success'))
+      dispatch(showToast(canSaveBack(mode) ? 'Transaction added. Click Save to write it to your sheet.' : 'Transaction added in memory. Export to keep it.', 'success'))
     }
     close()
   }

@@ -1,8 +1,8 @@
 import * as XLSX from 'xlsx'
 import type { Transaction } from '@/types/finance'
 import { EXPECTED_COLUMNS, MONTH_SHEETS, type ColumnKey, type SheetLayout } from '@/types/workbook'
-import { isoToExcelSerial, monthOfIso } from '@/utils/dateFormatter'
-import { detectLayout, resolveMonthSheet, sheetToRows } from './workbookReader'
+import { isoToExcelSerial, monthOfIso, yearOfIso } from '@/utils/dateFormatter'
+import { detectLayout, resolveMonthSheet, sheetToRows, yearFromSheetName } from './workbookReader'
 
 const STANDARD_COLUMNS: ColumnKey[] = ['date', 'description', 'category', 'type', 'paymentMethod', 'amount', 'notes']
 const DEFAULT_DATE_FORMAT = 'dd-mmm-yyyy'
@@ -23,29 +23,49 @@ export interface WriteResult {
   createdSheets: string[]
 }
 
-function findSheetForMonth(workbook: XLSX.WorkBook, month: (typeof MONTH_SHEETS)[number]): string | null {
-  for (const name of workbook.SheetNames) {
-    if (resolveMonthSheet(name) === month) return name
-  }
-  return null
+interface MonthSheetRef {
+  name: string
+  /** 1-12 */
+  month: number
+  /** Year in the sheet name ("January 2027"), or null for a plain "January" sheet that takes any year. */
+  year: number | null
 }
 
-function createMonthSheet(workbook: XLSX.WorkBook, month: string): string {
+/** The monthly sheets in workbook order; a repeated month + year keeps only the first, like the reader. */
+function listMonthSheets(workbook: XLSX.WorkBook): MonthSheetRef[] {
+  const refs: MonthSheetRef[] = []
+  for (const name of workbook.SheetNames) {
+    const month = resolveMonthSheet(name)
+    if (!month) continue
+    const ref = { name, month: MONTH_SHEETS.indexOf(month) + 1, year: yearFromSheetName(name) }
+    if (!refs.some((r) => r.month === ref.month && r.year === ref.year)) refs.push(ref)
+  }
+  return refs
+}
+
+/** A sheet named for the exact month and year wins; otherwise a plain month sheet takes the row. */
+function findSheetFor(refs: MonthSheetRef[], year: number, month: number): string | null {
+  return (refs.find((r) => r.month === month && r.year === year) ?? refs.find((r) => r.month === month && r.year === null))?.name ?? null
+}
+
+const sheetOrder = (year: number | null, month: number) => (year ?? 0) * 100 + month
+
+function createMonthSheet(workbook: XLSX.WorkBook, refs: MonthSheetRef[], year: number, month: number): string {
+  // Workbooks that already name sheets by year ("January 2027") get the same style; otherwise "January".
+  const withYear = refs.some((r) => r.year !== null)
+  const name = withYear ? `${MONTH_SHEETS[month - 1]} ${year}` : MONTH_SHEETS[month - 1]
   const ws = XLSX.utils.aoa_to_sheet([[...EXPECTED_COLUMNS]])
   ws['!cols'] = [{ wch: 14 }, { wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 30 }]
-  // Keep calendar order: insert before the first later month, otherwise append.
-  const monthIndex = MONTH_SHEETS.indexOf(month as (typeof MONTH_SHEETS)[number])
-  let insertAt = workbook.SheetNames.length
-  for (let i = 0; i < workbook.SheetNames.length; i += 1) {
-    const m = resolveMonthSheet(workbook.SheetNames[i])
-    if (m && MONTH_SHEETS.indexOf(m) > monthIndex) {
-      insertAt = i
-      break
-    }
-  }
-  workbook.SheetNames.splice(insertAt, 0, month)
-  workbook.Sheets[month] = ws
-  return month
+  // Keep calendar order: insert before the first later month sheet, otherwise append.
+  const order = sheetOrder(withYear ? year : null, month)
+  const later = workbook.SheetNames.findIndex((n) => {
+    const ref = refs.find((r) => r.name === n)
+    return ref !== undefined && sheetOrder(ref.year, ref.month) > order
+  })
+  workbook.SheetNames.splice(later === -1 ? workbook.SheetNames.length : later, 0, name)
+  workbook.Sheets[name] = ws
+  refs.push({ name, month, year: withYear ? year : null })
+  return name
 }
 
 /** Finds an existing number format in a column (first data cell below the header). */
@@ -71,31 +91,27 @@ function sortForSheet(a: Transaction, b: Transaction): number {
  * and edits/deletes/month moves are reflected exactly once.
  */
 export function applyTransactionsToWorkbook(workbook: XLSX.WorkBook, transactions: Transaction[]): WriteResult {
-  const byMonth = new Map<number, Transaction[]>()
+  const refs = listMonthSheets(workbook)
+  const createdSheets: string[] = []
+  const bySheet = new Map<string, Transaction[]>()
   for (const tx of transactions) {
     const m = monthOfIso(tx.date)
     if (!Number.isInteger(m) || m < 1 || m > 12) {
       throw new WorkbookWriteError(`Transaction "${tx.description}" has an invalid date (${tx.date}).`)
     }
-    const list = byMonth.get(m) ?? []
-    list.push(tx)
-    byMonth.set(m, list)
-  }
-
-  const createdSheets: string[] = []
-  const updated: Transaction[] = []
-
-  MONTH_SHEETS.forEach((month, idx) => {
-    const monthNumber = idx + 1
-    const list = (byMonth.get(monthNumber) ?? []).slice().sort(sortForSheet)
-    let sheetName = findSheetForMonth(workbook, month)
-
+    let sheetName = findSheetFor(refs, yearOfIso(tx.date), m)
     if (!sheetName) {
-      if (list.length === 0) return
-      sheetName = createMonthSheet(workbook, month)
+      sheetName = createMonthSheet(workbook, refs, yearOfIso(tx.date), m)
       createdSheets.push(sheetName)
     }
+    bySheet.set(sheetName, [...(bySheet.get(sheetName) ?? []), tx])
+  }
 
+  const updated: Transaction[] = []
+
+  // Every monthly sheet is rebuilt, including ones that end up empty, so deletes and moves are written.
+  refs.forEach(({ name: sheetName }) => {
+    const list = (bySheet.get(sheetName) ?? []).slice().sort(sortForSheet)
     const ws = workbook.Sheets[sheetName]
     const rows = sheetToRows(ws)
     let layout: SheetLayout | null = detectLayout(sheetName, rows)
@@ -157,7 +173,7 @@ export function applyTransactionsToWorkbook(workbook: XLSX.WorkBook, transaction
       put('paymentMethod', tx.paymentMethod ? { t: 's', v: tx.paymentMethod } : null)
       put('amount', { t: 'n', v: tx.amount, z: amountFormat })
       put('notes', tx.notes ? { t: 's', v: tx.notes } : null)
-      updated.push({ ...tx, sourceSheet: sheetName!, sourceRow: r + 1 })
+      updated.push({ ...tx, sourceSheet: sheetName, sourceRow: r + 1 })
     })
 
     const lastDataRow = headerRow + list.length
