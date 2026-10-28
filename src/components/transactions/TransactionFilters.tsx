@@ -28,6 +28,11 @@ export const DEFAULT_FILTERS: TransactionFilterState = {
   sortDir: 'desc',
 }
 
+/** Number of filters that narrow the list (sorting is not counted). */
+export function activeFilterCount(value: TransactionFilterState): number {
+  return [value.search.trim(), value.category, value.type !== 'all', value.paymentMethod, value.year, value.month].filter(Boolean).length
+}
+
 interface Props {
   value: TransactionFilterState
   onChange: (next: TransactionFilterState) => void

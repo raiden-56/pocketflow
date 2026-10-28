@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Box, Button, Pagination, Stack, Typography, useMediaQuery, useTheme } from '@mui/material'
+import { Badge, Box, Button, Collapse, IconButton, Pagination, Stack, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import FilterListIcon from '@mui/icons-material/FilterList'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import { motion } from 'framer-motion'
 import { useAppDispatch, useAppSelector } from '@/app/store'
@@ -14,7 +15,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { staggerContainer } from '@/components/common/PageTransition'
 import { ConnectWorkbookEmptyState } from '@/components/settings/ConnectWorkbookEmptyState'
-import { TransactionFilters, DEFAULT_FILTERS, type TransactionFilterState } from '@/components/transactions/TransactionFilters'
+import { TransactionFilters, DEFAULT_FILTERS, activeFilterCount, type TransactionFilterState } from '@/components/transactions/TransactionFilters'
 import { TransactionTable, type SortKey } from '@/components/transactions/TransactionTable'
 import { TransactionCard } from '@/components/transactions/TransactionCard'
 import { DeleteTransactionDialog } from '@/components/transactions/DeleteTransactionDialog'
@@ -37,6 +38,8 @@ export default function TransactionsPage() {
   const [filters, setFilters] = useState<TransactionFilterState>({ ...DEFAULT_FILTERS, year: period.year, month: period.month ?? 0 })
   const [page, setPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filterCount = activeFilterCount(filters)
 
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase()
@@ -83,14 +86,34 @@ export default function TransactionsPage() {
             {filtered.length} of {items.length} shown · income {money(totals.income)} · expenses {money(totals.expenses)} · net {money(totals.net, { signed: true })}
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => dispatch(openTransactionDialog(null))}>
-          Add transaction
-        </Button>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <Tooltip title={filtersOpen ? 'Hide filters' : 'Show filters'}>
+            <IconButton
+              onClick={() => setFiltersOpen((open) => !open)}
+              color={filtersOpen ? 'primary' : 'default'}
+              aria-label={filtersOpen ? 'Hide filters' : 'Show filters'}
+              aria-expanded={filtersOpen}
+              aria-controls="transaction-filters"
+              sx={{ border: 1, borderColor: filtersOpen ? 'primary.main' : 'divider', borderRadius: 2 }}
+            >
+              <Badge badgeContent={filterCount} color="primary">
+                <FilterListIcon />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => dispatch(openTransactionDialog(null))} sx={{ flexGrow: { xs: 1, sm: 0 } }}>
+            Add transaction
+          </Button>
+        </Stack>
       </Stack>
 
-      <SectionCard animate={false}>
-        <TransactionFilters value={filters} onChange={updateFilters} categories={categories} paymentMethods={paymentMethods} years={years} />
-      </SectionCard>
+      <Collapse in={filtersOpen} id="transaction-filters" sx={{ mt: '0 !important' }}>
+        <Box sx={{ pt: 2.5 }}>
+          <SectionCard animate={false}>
+            <TransactionFilters value={filters} onChange={updateFilters} categories={categories} paymentMethods={paymentMethods} years={years} />
+          </SectionCard>
+        </Box>
+      </Collapse>
 
       {filtered.length === 0 ? (
         <SectionCard>
