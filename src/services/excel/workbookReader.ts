@@ -295,14 +295,20 @@ export function parseWorkbook(workbook: XLSX.WorkBook, options: ParseOptions = {
 
   if (undated.length > 0) {
     const fallbackYear = dominantYear(transactions) ?? new Date().getFullYear()
+    // One note per sheet: pasting a monthly template with empty dates is a normal way to fill a month.
+    const rowsBySheet = new Map<string, number[]>()
     for (const { tx, month, sheetYear } of undated) {
       tx.date = toIsoDate(new Date(sheetYear ?? fallbackYear, month - 1, 1))
+      rowsBySheet.set(tx.sourceSheet!, [...(rowsBySheet.get(tx.sourceSheet!) ?? []), tx.sourceRow!])
+    }
+    for (const [sheet, rows] of rowsBySheet) {
+      const date = undated.find((u) => u.tx.sourceSheet === sheet)!.tx.date
       issue({
         severity: 'warning',
-        sheet: tx.sourceSheet!,
-        row: tx.sourceRow,
+        sheet,
+        row: rows[0],
         field: 'date',
-        message: `Date is empty; recorded on ${formatDisplayDate(tx.date)} (start of ${tx.sourceSheet}). Add the real date in Excel if it matters.`,
+        message: `${rows.length === 1 ? `Row ${rows[0]} has` : `${rows.length} rows (${rows.join(', ')}) have`} no date; recorded on ${formatDisplayDate(date)} (start of ${sheet}). Add the real date in Excel if it matters.`,
         rawValue: '',
         recovered: true,
       })

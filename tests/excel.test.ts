@@ -156,7 +156,10 @@ describe('template workbook parsing', () => {
     const errors = parsed.issues.filter((i) => i.severity === 'error')
     expect(errors).toHaveLength(1)
     expect(errors[0]).toMatchObject({ sheet: 'October', row: 4, field: 'date' })
-    expect(parsed.issues.filter((i) => i.field === 'date' && i.recovered)).toHaveLength(3)
+    // One grouped note per sheet, not one per row.
+    const undatedNotes = parsed.issues.filter((i) => i.field === 'date' && i.recovered)
+    expect(undatedNotes.map((i) => i.sheet).sort()).toEqual(['November 2025', 'October'])
+    expect(undatedNotes.find((i) => i.sheet === 'October')!.message).toMatch(/^2 rows \(2, 3\) have no date; recorded on 01 Oct 2026/)
   })
 
   it('reports a fatal error when no monthly sheets exist', () => {
