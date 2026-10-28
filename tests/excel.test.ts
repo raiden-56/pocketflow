@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import * as XLSX from 'xlsx'
@@ -373,5 +373,26 @@ describe('private Google Sheet saves', () => {
     const added: Transaction = { id: 'a', date: '2026-10-28', description: 'Test', category: 'Food', type: 'Expense', paymentMethod: 'UPI', amount: 1, notes: '' }
     const rows = scriptRowsFromWrite(applyTransactionsToWorkbook(wb, [...parsed.transactions, added]), before)
     expect(rows).toEqual({ 'October 2026': [['2026-10-28', 'Test', 'Food', 'Expense', 'UPI', 1, '']] })
+  })
+})
+
+describe('sheet key storage', () => {
+  it('keeps the private sheet key only in this browser and forgets it on request', async () => {
+    const store = new Map<string, string>()
+    const fake = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) }
+    Object.defineProperty(globalThis, 'localStorage', { value: fake, configurable: true })
+    // A developer's .env.local must not leak into this test.
+    vi.stubEnv('VITE_SHEET_URL', '')
+    vi.stubEnv('VITE_SHEET_KEY', '')
+    vi.resetModules()
+    const { rememberSheetKey, sheetKey } = await import('@/app/config')
+    expect(sheetKey()).toBe('')
+    rememberSheetKey('abc123')
+    expect(sheetKey()).toBe('abc123')
+    expect([...store.keys()]).toEqual(['pocketflow:sheet-key'])
+    rememberSheetKey(null)
+    expect(sheetKey()).toBe('')
+    expect(store.size).toBe(0)
+    vi.unstubAllEnvs()
   })
 })

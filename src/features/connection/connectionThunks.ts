@@ -1,6 +1,6 @@
 import type { AppThunk } from '@/app/store'
 import type { ConnectionMode, FileFingerprint } from '@/types/workbook'
-import { FIXED_SHEET } from '@/app/config'
+import { FIXED_SHEET, rememberSheetKey, sheetKey } from '@/app/config'
 import {
   FileAccessError,
   downloadBuffer,
@@ -151,7 +151,7 @@ export function importWorkbook(): AppThunk<Promise<void>> {
 /** Downloads a sheet link: the private Apps Script (/exec URL) or a published / public .xlsx link. */
 async function fetchSheet(url: string): Promise<{ buffer: ArrayBuffer; name: string; mode: 'link' | 'gsheet' }> {
   if (isScriptUrl(url)) {
-    const { workbook, name } = await readViaScript(url, FIXED_SHEET.key ?? '')
+    const { workbook, name } = await readViaScript(url, sheetKey())
     return { buffer: workbookToBuffer(workbook), name, mode: 'gsheet' }
   }
   const { buffer, name } = await fetchWorkbookFromLink(url)
@@ -175,11 +175,14 @@ function readAndLoadLink(url: string): AppThunk<Promise<boolean>> {
  * Mode 3/4: a Google Sheet. A "Publish to web" or other public .xlsx link is read-only (edits are exported);
  * the PocketFlow Apps Script URL keeps the sheet private and saves edits straight into it.
  */
-export function connectLink(url: string): AppThunk<Promise<boolean>> {
+export function connectLink(url: string, key?: string): AppThunk<Promise<boolean>> {
   return async (dispatch) => {
     workbookSession.setHandle(null)
     await clearWorkbookHandle()
+    if (key !== undefined) rememberSheetKey(key.trim() || null)
     const ok = await dispatch(readAndLoadLink(url.trim()))
+    // Do not keep a key that did not work (wrong key or no connection); the form asks for it again.
+    if (!ok && key !== undefined) rememberSheetKey(null)
     if (ok) {
       dispatch(showToast(isScriptUrl(url) ? 'Connected to your Google Sheet.' : 'Connected to the Google Sheet. Edits made in Google Sheets appear here automatically.', 'success'))
     }
@@ -340,7 +343,7 @@ function saveToGoogleSheet(options: { overwriteExternal?: boolean }): AppThunk<P
       dispatch(saveFailed('No Google Sheet is connected. Your changes are still in memory and have NOT been saved.'))
       return false
     }
-    const key = FIXED_SHEET.key ?? ''
+    const key = sheetKey()
     dispatch(savingStarted())
     try {
       if (!options.overwriteExternal) {
@@ -471,6 +474,7 @@ export function disconnectWorkbook(): AppThunk<Promise<void>> {
     workbookSession.reset()
     await clearWorkbookHandle()
     removeLocal(CONNECTION_META_KEY)
+    rememberSheetKey(null)
     dispatch(clearTransactions())
     dispatch(disconnected())
   }

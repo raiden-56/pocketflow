@@ -70,7 +70,7 @@ export function ConnectWorkbookEmptyState() {
           {!FIXED_SHEET.url && (
             <>
               <Typography variant="body2" sx={{ mt: 3, mb: 1, opacity: 0.9 }}>
-                Or read it from Google Sheets:
+                Or connect your Google Sheet:
               </Typography>
               <SheetLinkForm onDark />
             </>

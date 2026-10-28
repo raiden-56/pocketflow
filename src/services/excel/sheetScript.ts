@@ -90,7 +90,9 @@ async function call(url: string, body: Record<string, unknown>): Promise<ScriptR
     throw new FileAccessError('read', 'The Google Sheet script did not answer as expected. Check that it is deployed as a web app with access "Anyone".')
   }
   if (!reply.ok) {
-    if (reply.error === 'unauthorized') throw new FileAccessError('permission', 'The Google Sheet did not accept this app\'s key. Check VITE_SHEET_KEY in .env.local.')
+    if (reply.error === 'unauthorized') {
+      throw new FileAccessError('permission', 'Your Google Sheet did not accept the secret key. Disconnect, then connect again with the KEY from your PocketFlow Apps Script.')
+    }
     throw new FileAccessError('read', `Google Sheet error: ${reply.error ?? 'unknown error'}`)
   }
   return reply

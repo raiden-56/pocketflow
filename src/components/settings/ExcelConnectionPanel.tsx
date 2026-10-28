@@ -134,8 +134,8 @@ export function ExcelConnectionPanel() {
         )}
       </Stack>
 
-      {/* The sheet fixed in .env.local is not changed from here, and its link is never shown. */}
-      {!FIXED_SHEET.url && <SheetLinkForm key={c.sourceUrl ?? 'none'} />}
+      {/* The sheet fixed in .env.local, or a connected private sheet, is not changed from here (Disconnect first); its link is never shown. */}
+      {!FIXED_SHEET.url && (c.mode !== 'gsheet' || c.status === 'failed') && <SheetLinkForm key={c.sourceUrl ?? 'none'} />}
 
       <Button size="small" color="inherit" startIcon={<HelpOutlineIcon />} onClick={() => setShowHelp((v) => !v)} sx={{ alignSelf: 'flex-start' }}>
         Connection troubleshooting

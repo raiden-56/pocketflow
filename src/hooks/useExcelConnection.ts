@@ -27,7 +27,7 @@ export function useExcelConnection() {
 
   const connect = useCallback(() => dispatch(supportsDirectAccess ? connectDirect() : importWorkbook()), [dispatch, supportsDirectAccess])
   const importFile = useCallback(() => dispatch(importWorkbook()), [dispatch])
-  const connectSheetLink = useCallback((url: string) => dispatch(connectLink(url)), [dispatch])
+  const connectSheetLink = useCallback((url: string, key?: string) => dispatch(connectLink(url, key)), [dispatch])
   const refresh = useCallback((force = false) => dispatch(refreshFromExcel({ force })), [dispatch])
   const save = useCallback(() => dispatch(saveChanges()), [dispatch])
   const disconnect = useCallback(() => dispatch(disconnectWorkbook()), [dispatch])

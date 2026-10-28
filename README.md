@@ -70,6 +70,12 @@ The sheet stays private to your Google account. A small Apps Script inside the s
 
 With `VITE_SHEET_URL` set, the app opens that sheet on start and Settings does not show or change the link. Anyone who has **both** the URL and the key can read and change the transaction sheets, so keep `.env.local` private, and change `KEY` (and the env value) if it ever leaks. The key is built into the app's JavaScript, so do not host a build of the app on a public website with it.
 
+### Hosting (Netlify or similar)
+
+Build command `npm run build`, publish directory `dist`. [`public/_redirects`](public/_redirects) sends every path to the app, so reloading `/lending` or `/transactions` works on Netlify.
+
+**Do not set `VITE_SHEET_KEY` (or `VITE_SHEET_URL`) on the host**: Vite builds them into JavaScript that anyone can download. Instead, open the hosted site on each device and enter the Apps Script `/exec` address and the secret key in **Or connect your Google Sheet**. They are kept only in that browser; *Settings → Disconnect* forgets them.
+
 ### Published Google Sheet link (read-only)
 
 *File → Share → Publish to web → Entire document → Publish*, then paste the link into **Google Sheet link** (welcome screen or Settings). Anyone who has a published link can view the sheet, and Google can take up to 5 minutes to refresh it after an edit.
